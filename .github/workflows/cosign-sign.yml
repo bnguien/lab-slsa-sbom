@@ -1,0 +1,55 @@
+name: Keyless Artifact Signing with Cosign
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-sign:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Package Release Artifact
+        run: |
+          tar -czvf release.tar.gz app.py
+          sha256sum release.tar.gz > release.tar.gz.sha256
+
+      - name: Install Sigstore Cosign
+        uses: sigstore/cosign-installer@v4
+
+      - name: Sign Artifact Keylessly
+        run: |
+          cosign sign-blob release.tar.gz \
+            --bundle release.tar.gz.sigstore.json \
+            --output-signature release.tar.gz.sig \
+            --output-certificate release.tar.gz.pem \
+            --yes
+
+      - name: Verify Signed Artifact
+        env:
+          CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/cosign-sign.yml@${{ github.ref }}
+        run: |
+          cosign verify-blob release.tar.gz \
+            --bundle release.tar.gz.sigstore.json \
+            --certificate-identity "$CERT_IDENTITY" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+
+      - name: Upload Signed Artifacts Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-signed-package
+          path: |
+            release.tar.gz
+            release.tar.gz.sig
+            release.tar.gz.pem
+            release.tar.gz.sha256
+            release.tar.gz.sigstore.json
